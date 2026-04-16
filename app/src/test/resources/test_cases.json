@@ -1,0 +1,188 @@
+{
+  "description": "Each case mimics .env config (TARGET_GROUP, ALLOWED_SENDERS, MATCH_PROMPT) plus a WhatsApp message, and declares the expected filter outcomes. group_match and sender_match are asserted offline. llm_match is asserted only when the LLM integration test is enabled (see LlmMatcherIntegrationTest).",
+  "test_cases": [
+
+    {
+      "name": "target group + any sender: on-topic message is caught",
+      "config": {
+        "TARGET_GROUP": "My Apartment Group",
+        "ALLOWED_SENDERS": "all",
+        "MATCH_PROMPT": "messages where someone is looking for an accommodation or a room or a flatmate"
+      },
+      "message": {
+        "title": "My Apartment Group",
+        "text": "Alice: Hey all, I'm looking for a flatmate in Berlin starting May",
+        "bigText": "Hey all, I'm looking for a flatmate in Berlin starting May",
+        "subText": "My Apartment Group",
+        "sender": "Alice",
+        "messageBody": "Hey all, I'm looking for a flatmate in Berlin starting May",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": true,
+        "sender_match": true,
+        "llm_match": true
+      }
+    },
+
+    {
+      "name": "wrong group: message is filtered out",
+      "config": {
+        "TARGET_GROUP": "My Apartment Group",
+        "ALLOWED_SENDERS": "all",
+        "MATCH_PROMPT": "messages where someone is looking for an accommodation"
+      },
+      "message": {
+        "title": "Football Chat",
+        "text": "Bob: looking for a flatmate",
+        "bigText": "looking for a flatmate",
+        "subText": "Football Chat",
+        "sender": "Bob",
+        "messageBody": "looking for a flatmate",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": false,
+        "sender_match": true
+      }
+    },
+
+    {
+      "name": "target group matches case-insensitively",
+      "config": {
+        "TARGET_GROUP": "my apartment group",
+        "ALLOWED_SENDERS": "all",
+        "MATCH_PROMPT": "accommodation inquiries"
+      },
+      "message": {
+        "title": "My Apartment Group",
+        "text": "Alice: who's free tonight?",
+        "bigText": "who's free tonight?",
+        "subText": "My Apartment Group",
+        "sender": "Alice",
+        "messageBody": "who's free tonight?",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": true,
+        "sender_match": true,
+        "llm_match": false
+      }
+    },
+
+    {
+      "name": "allowed sender list: matching sender passes",
+      "config": {
+        "TARGET_GROUP": "My Apartment Group",
+        "ALLOWED_SENDERS": "Alice, Carol",
+        "MATCH_PROMPT": "accommodation inquiries"
+      },
+      "message": {
+        "title": "My Apartment Group",
+        "text": "Alice: room open in Kreuzberg from June",
+        "bigText": "room open in Kreuzberg from June",
+        "subText": "My Apartment Group",
+        "sender": "Alice",
+        "messageBody": "room open in Kreuzberg from June",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": true,
+        "sender_match": true,
+        "llm_match": true
+      }
+    },
+
+    {
+      "name": "allowed sender list: non-matching sender is filtered out",
+      "config": {
+        "TARGET_GROUP": "My Apartment Group",
+        "ALLOWED_SENDERS": "Alice, Carol",
+        "MATCH_PROMPT": "accommodation inquiries"
+      },
+      "message": {
+        "title": "My Apartment Group",
+        "text": "Bob: anyone up for hiking?",
+        "bigText": "anyone up for hiking?",
+        "subText": "My Apartment Group",
+        "sender": "Bob",
+        "messageBody": "anyone up for hiking?",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": true,
+        "sender_match": false
+      }
+    },
+
+    {
+      "name": "sender substring match (partial name)",
+      "config": {
+        "TARGET_GROUP": "My Apartment Group",
+        "ALLOWED_SENDERS": "Alice",
+        "MATCH_PROMPT": "accommodation inquiries"
+      },
+      "message": {
+        "title": "My Apartment Group",
+        "text": "Alice Smith: checking in",
+        "bigText": "checking in",
+        "subText": "My Apartment Group",
+        "sender": "Alice Smith",
+        "messageBody": "checking in",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": true,
+        "sender_match": true,
+        "llm_match": false
+      }
+    },
+
+    {
+      "name": "blank target group acts as wildcard",
+      "config": {
+        "TARGET_GROUP": "",
+        "ALLOWED_SENDERS": "all",
+        "MATCH_PROMPT": "food inquiries"
+      },
+      "message": {
+        "title": "Random Group",
+        "text": "Dave: looking for a room",
+        "bigText": "looking for a room",
+        "subText": "Random Group",
+        "sender": "Dave",
+        "messageBody": "looking for a room",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": true,
+        "sender_match": true,
+        "llm_match": true
+      }
+    },
+
+    {
+      "name": "off-topic message in correct group: passes filters, LLM rejects",
+      "config": {
+        "TARGET_GROUP": "My Apartment Group",
+        "ALLOWED_SENDERS": "all",
+        "MATCH_PROMPT": "messages where someone is looking for an accommodation or a room or a flatmate"
+      },
+      "message": {
+        "title": "My Apartment Group",
+        "text": "Eve: pizza tonight?",
+        "bigText": "pizza tonight?",
+        "subText": "My Apartment Group",
+        "sender": "Eve",
+        "messageBody": "pizza tonight?",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": true,
+        "sender_match": true,
+        "llm_match": false
+      }
+    }
+
+  ]
+}
