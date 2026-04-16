@@ -42,55 +42,50 @@ class WhatsAppNotificationListener : NotificationListenerService() {
             append("  group=${WhatsAppNotificationParser.getGroupName(message)}")
         })
 
-        // Route on group vs 1:1.
-        //   Group messages:  must pass TARGET_GROUPS + ALLOWED_SENDERS filters.
-        //   1:1 messages:    must pass TARGET_INDIVIDUALS filter (opt-in).
-        if (message.isGroupMessage) {
-            if (!MessageMatcher.matchesGroup(applicationContext, message)) {
-                Log.d(TAG, "Group mismatch, skipping")
-                return
-            }
-            if (!MessageMatcher.matchesSender(applicationContext, message)) {
-                Log.d(TAG, "Sender mismatch, skipping")
-                return
-            }
-        } else {
-            if (!MessageMatcher.matchesIndividual(applicationContext, message)) {
-                Log.d(TAG, "Individual mismatch, skipping")
-                return
-            }
+        // Iterate every enabled preset. A message alerts if ANY enabled
+        // preset's filters + LLM approve it. First match wins — we stop
+        // evaluating further presets to save LLM calls.
+        val enabledPresets = PresetStore.enabled(applicationContext)
+        if (enabledPresets.isEmpty()) {
+            Log.d(TAG, "No enabled presets, skipping")
+            return
         }
 
-        // Record the pre-LLM candidate before the LLM runs. If the LLM call
-        // never finishes (network error, hang), the entry stays "pending",
-        // which is itself diagnostic signal.
-        PreLlmMatches.addPending(applicationContext, message)
-
-        // Run LLM matching asynchronously
         scope.launch {
-            try {
-                val llmResult = LlmMatcher.matchMessage(applicationContext, message)
-                Log.d(TAG, "LLM result: matches=${llmResult.matches}, reason=${llmResult.reason}")
-
-                val status = when {
-                    llmResult.reason.contains("not configured", ignoreCase = true) -> "skipped"
-                    llmResult.reason.startsWith("Error:", ignoreCase = true) ||
-                        llmResult.reason.contains("API error", ignoreCase = true) -> "error"
-                    llmResult.matches -> "yes"
-                    else -> "no"
+            for (preset in enabledPresets) {
+                val passes = if (message.isGroupMessage) {
+                    val groupOk = MessageMatcher.matchesGroups(preset.targetGroupsList(), message)
+                    val senderOk = MessageMatcher.matchesSender(preset.allowedSendersList(), message)
+                    groupOk && senderOk
+                } else {
+                    MessageMatcher.matchesIndividual(
+                        preset.targetIndividualsList(),
+                        preset.individualsWildcard(),
+                        message
+                    )
                 }
-                PreLlmMatches.updateLlmResult(applicationContext, message, status, llmResult.reason)
-
-                if (llmResult.matches) {
-                    AlertNotifier.sendAlert(applicationContext, message, llmResult.reason)
-                    Log.i(TAG, "ALERT sent for message from ${message.sender}")
+                if (!passes) {
+                    Log.d(TAG, "Preset '${preset.name}' filters rejected — skipping")
+                    continue
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error during LLM matching", e)
-                PreLlmMatches.updateLlmResult(
-                    applicationContext, message, "error", e.message ?: e.javaClass.simpleName
-                )
+
+                try {
+                    val llmResult = LlmMatcher.matchMessage(
+                        applicationContext, message, preset.matchPromptsList()
+                    )
+                    Log.d(TAG, "Preset '${preset.name}' LLM: matches=${llmResult.matches}, reason=${llmResult.reason}")
+
+                    if (llmResult.matches) {
+                        val reason = "[${preset.name}] ${llmResult.reason}"
+                        AlertNotifier.sendAlert(applicationContext, message, reason)
+                        Log.i(TAG, "ALERT sent via preset '${preset.name}' for ${message.sender}")
+                        return@launch
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Preset '${preset.name}' LLM error", e)
+                }
             }
+            Log.d(TAG, "No enabled preset matched; no alert")
         }
     }
 

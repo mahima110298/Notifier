@@ -4,68 +4,51 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
- * Manages app configuration backed by SharedPreferences.
- * Defaults are loaded from BuildConfig (which reads .env at build time).
- * Users can override via the UI, which persists to SharedPreferences.
+ * Effective runtime configuration. Resolves the *active preset* (from
+ * [PresetStore]) for matching fields, plus the global LLM endpoint from
+ * SharedPreferences.
  *
- * Config schema:
- *   target_groups        — comma-separated group names; blank or "all" = any group
- *   target_individuals   — comma-separated 1:1 contact names; blank = none, "all" = any
- *   allowed_senders      — comma-separated sender names (within groups); blank/"all" = any
- *   match_prompts        — newline-separated LLM criteria; match ANY → alert
- *   llm_api_key / llm_api_base_url / llm_model — LLM endpoint config
- *
- * Legacy (singular) keys from pre-list versions are migrated on first read.
+ * Migration: if no presets exist on first call, one is synthesized from
+ * the legacy per-field SharedPreferences keys (or BuildConfig defaults)
+ * and marked active. Legacy keys are then removed.
  */
 object AppConfig {
     private const val PREFS_NAME = "whatsapp_notifier_config"
 
-    // Current (list) keys
-    private const val KEY_TARGET_GROUPS = "target_groups"
-    private const val KEY_TARGET_INDIVIDUALS = "target_individuals"
-    private const val KEY_ALLOWED_SENDERS = "allowed_senders"
-    private const val KEY_MATCH_PROMPTS = "match_prompts"
-
-    // LLM endpoint (unchanged)
+    // Global LLM endpoint (unchanged, not per-preset).
     private const val KEY_API_KEY = "llm_api_key"
     private const val KEY_API_BASE_URL = "llm_api_base_url"
     private const val KEY_MODEL = "llm_model"
 
-    // Legacy (singular) keys — migrated to the list keys on first read.
-    private const val LEGACY_KEY_TARGET_GROUP = "target_group"
-    private const val LEGACY_KEY_MATCH_PROMPT = "match_prompt"
+    // Legacy per-field keys (migrated into a "Default" preset on first call).
+    private const val LEGACY_KEY_TARGET_GROUPS = "target_groups"
+    private const val LEGACY_KEY_TARGET_INDIVIDUALS = "target_individuals"
+    private const val LEGACY_KEY_ALLOWED_SENDERS = "allowed_senders"
+    private const val LEGACY_KEY_MATCH_PROMPTS = "match_prompts"
+    private const val LEGACY_KEY_TARGET_GROUP = "target_group"     // very old singular
+    private const val LEGACY_KEY_MATCH_PROMPT = "match_prompt"     // very old singular
+
+    @Volatile private var migrated = false
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     // ---------------- parsed (list) getters ----------------
 
-    /** List of target group names. Empty = match any group. */
     fun getTargetGroups(context: Context): List<String> =
         parseCsv(getTargetGroupsRaw(context))
 
-    /**
-     * List of 1:1 contact names to monitor. Empty = don't match any 1:1 chat.
-     * Special value "all" = match any 1:1 contact (returns a single-element
-     * sentinel list containing "*" — callers should use [individualsWildcard]).
-     */
     fun getTargetIndividuals(context: Context): List<String> =
         parseCsvWithWildcard(getTargetIndividualsRaw(context))
 
-    /** Returns true if the individuals config is the wildcard "all". */
-    fun individualsWildcard(context: Context): Boolean {
-        val raw = getTargetIndividualsRaw(context).trim()
-        return raw.equals("all", ignoreCase = true)
-    }
+    fun individualsWildcard(context: Context): Boolean =
+        getTargetIndividualsRaw(context).trim().equals("all", ignoreCase = true)
 
-    /** Within-group sender allow-list. Empty = any sender. */
     fun getAllowedSenders(context: Context): List<String> =
         parseCsv(getAllowedSendersRaw(context))
 
-    /** List of LLM match criteria. A message matches if ANY criterion matches. */
     fun getMatchPrompts(context: Context): List<String> {
         val raw = getMatchPromptsRaw(context)
-        // Accept both newlines (UI) and | (.env single-line) as separators.
         return raw.split('\n', '|').map { it.trim() }.filter { it.isNotBlank() }
     }
 
@@ -79,97 +62,126 @@ object AppConfig {
         prefs(context).getString(KEY_MODEL, null) ?: BuildConfig.LLM_MODEL
 
     // ---------------- raw (UI) getters ----------------
-    // Used by MainActivity to re-render the user's original text into the
-    // edit fields. These also perform legacy migration on first read.
 
-    fun getTargetGroupsRaw(context: Context): String = migrateAndRead(
-        context,
-        newKey = KEY_TARGET_GROUPS,
-        legacyKey = LEGACY_KEY_TARGET_GROUP,
-        default = BuildConfig.TARGET_GROUPS
-    )
+    fun getTargetGroupsRaw(context: Context): String {
+        ensureDefaultPreset(context)
+        return PresetStore.active(context)?.targetGroups ?: BuildConfig.TARGET_GROUPS
+    }
 
-    fun getTargetIndividualsRaw(context: Context): String =
-        prefs(context).getString(KEY_TARGET_INDIVIDUALS, null)
-            ?: BuildConfig.TARGET_INDIVIDUALS
+    fun getTargetIndividualsRaw(context: Context): String {
+        ensureDefaultPreset(context)
+        return PresetStore.active(context)?.targetIndividuals ?: BuildConfig.TARGET_INDIVIDUALS
+    }
 
-    fun getAllowedSendersRaw(context: Context): String =
-        prefs(context).getString(KEY_ALLOWED_SENDERS, null)
-            ?: BuildConfig.ALLOWED_SENDERS
+    fun getAllowedSendersRaw(context: Context): String {
+        ensureDefaultPreset(context)
+        return PresetStore.active(context)?.allowedSenders ?: BuildConfig.ALLOWED_SENDERS
+    }
 
-    fun getMatchPromptsRaw(context: Context): String = migrateAndRead(
-        context,
-        newKey = KEY_MATCH_PROMPTS,
-        legacyKey = LEGACY_KEY_MATCH_PROMPT,
-        default = BuildConfig.MATCH_PROMPTS
-    )
+    fun getMatchPromptsRaw(context: Context): String {
+        ensureDefaultPreset(context)
+        return PresetStore.active(context)?.matchPrompts ?: BuildConfig.MATCH_PROMPTS
+    }
 
     // ---------------- save ----------------
 
-    fun save(
+    /**
+     * Save the matching-form values (groups / individuals / senders /
+     * prompts) into the currently-active preset. Creates a "Default" preset
+     * if none exists. Does NOT touch the LLM endpoint settings.
+     */
+    fun saveMatchingConfig(
         context: Context,
-        targetGroups: String,       // raw user-entered text (comma-separated)
-        targetIndividuals: String,  // raw; comma-separated
-        allowedSenders: String,     // raw; comma-separated
+        targetGroups: String,
+        targetIndividuals: String,
+        allowedSenders: String,
+        matchPrompts: String
+    ) {
+        ensureDefaultPreset(context)
+        val active = PresetStore.active(context) ?: ConfigPreset.newEmpty("Default")
+        val updated = active.copy(
+            targetGroups = targetGroups,
+            targetIndividuals = targetIndividuals,
+            allowedSenders = allowedSenders,
+            matchPrompts = matchPrompts
+        )
+        PresetStore.save(context, updated)
+        if (PresetStore.activeId(context) == null) PresetStore.setActive(context, updated.id)
+    }
+
+    /**
+     * Save the global LLM endpoint config (api key / base url / model).
+     * Only surfaced in debug builds via the LLM tab. Release builds fall
+     * back to BuildConfig defaults baked from .env at build time.
+     */
+    fun saveLlmSettings(
+        context: Context,
         apiKey: String,
         apiBaseUrl: String,
-        model: String,
-        matchPrompts: String        // raw; newline-separated (UI) or |-separated (env)
+        model: String
     ) {
         prefs(context).edit()
-            .putString(KEY_TARGET_GROUPS, targetGroups)
-            .putString(KEY_TARGET_INDIVIDUALS, targetIndividuals)
-            .putString(KEY_ALLOWED_SENDERS, allowedSenders)
             .putString(KEY_API_KEY, apiKey)
             .putString(KEY_API_BASE_URL, apiBaseUrl)
             .putString(KEY_MODEL, model)
-            .putString(KEY_MATCH_PROMPTS, matchPrompts)
-            // Remove legacy keys — we've superseded them.
-            .remove(LEGACY_KEY_TARGET_GROUP)
-            .remove(LEGACY_KEY_MATCH_PROMPT)
             .apply()
     }
 
     // ---------------- helpers ----------------
 
-    /** Parse comma-separated list. "all" or blank → empty list (= match any). */
     private fun parseCsv(raw: String): List<String> {
         if (raw.isBlank() || raw.equals("all", ignoreCase = true)) return emptyList()
         return raw.split(",").map { it.trim() }.filter { it.isNotBlank() }
     }
 
-    /**
-     * Like [parseCsv] but distinguishes "all" (→ empty list, semantics of
-     * "match any") from blank (→ empty list, semantics of "match none" for
-     * opt-in categories like individuals). Callers must use
-     * [individualsWildcard] to tell them apart.
-     */
     private fun parseCsvWithWildcard(raw: String): List<String> {
-        if (raw.isBlank()) return emptyList()
-        if (raw.equals("all", ignoreCase = true)) return emptyList()
+        if (raw.isBlank() || raw.equals("all", ignoreCase = true)) return emptyList()
         return raw.split(",").map { it.trim() }.filter { it.isNotBlank() }
     }
 
     /**
-     * If [newKey] is present → return it. Otherwise, if [legacyKey] is
-     * present → promote its value to [newKey] (one-time migration) and
-     * return it. Otherwise return [default].
+     * On first call per-process: if PresetStore has no presets, synthesize
+     * a "Default" preset from legacy SharedPreferences keys (or BuildConfig
+     * defaults) and mark it active. Legacy keys are then removed.
      */
-    private fun migrateAndRead(
-        context: Context,
-        newKey: String,
-        legacyKey: String,
-        default: String
-    ): String {
-        val p = prefs(context)
-        val current = p.getString(newKey, null)
-        if (current != null) return current
-
-        val legacy = p.getString(legacyKey, null)
-        if (legacy != null) {
-            p.edit().putString(newKey, legacy).remove(legacyKey).apply()
-            return legacy
+    private fun ensureDefaultPreset(context: Context) {
+        if (migrated) return
+        synchronized(this) {
+            if (migrated) return
+            migrated = true
         }
-        return default
+        if (PresetStore.list(context).isNotEmpty()) return
+
+        val p = prefs(context)
+        // Prefer the plural legacy keys; fall back to pre-plural singular, then BuildConfig.
+        val groups = p.getString(LEGACY_KEY_TARGET_GROUPS, null)
+            ?: p.getString(LEGACY_KEY_TARGET_GROUP, null)
+            ?: BuildConfig.TARGET_GROUPS
+        val individuals = p.getString(LEGACY_KEY_TARGET_INDIVIDUALS, null)
+            ?: BuildConfig.TARGET_INDIVIDUALS
+        val senders = p.getString(LEGACY_KEY_ALLOWED_SENDERS, null)
+            ?: BuildConfig.ALLOWED_SENDERS
+        val prompts = p.getString(LEGACY_KEY_MATCH_PROMPTS, null)
+            ?: p.getString(LEGACY_KEY_MATCH_PROMPT, null)
+            ?: BuildConfig.MATCH_PROMPTS
+
+        val preset = ConfigPreset.newEmpty("Default").copy(
+            targetGroups = groups,
+            targetIndividuals = individuals,
+            allowedSenders = senders,
+            matchPrompts = prompts
+        )
+        PresetStore.save(context, preset)
+        PresetStore.setActive(context, preset.id)
+
+        // Clean up legacy per-field keys — they've been folded into the preset.
+        p.edit()
+            .remove(LEGACY_KEY_TARGET_GROUPS)
+            .remove(LEGACY_KEY_TARGET_INDIVIDUALS)
+            .remove(LEGACY_KEY_ALLOWED_SENDERS)
+            .remove(LEGACY_KEY_MATCH_PROMPTS)
+            .remove(LEGACY_KEY_TARGET_GROUP)
+            .remove(LEGACY_KEY_MATCH_PROMPT)
+            .apply()
     }
 }

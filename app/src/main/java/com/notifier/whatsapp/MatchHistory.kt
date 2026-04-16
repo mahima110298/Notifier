@@ -12,6 +12,11 @@ object MatchHistory {
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
     fun addMatch(context: Context, message: WhatsAppMessage, reason: String) {
+        // Match history is a debug/diagnostic feature only. Release builds
+        // still post alert notifications to the system tray, but don't keep
+        // an in-app record.
+        if (!BuildConfig.DEBUG_ACCEPT_ALL_PACKAGES) return
+
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val existing = prefs.getString(KEY_HISTORY, "") ?: ""
         val timeStr = timeFormat.format(Date(message.timestamp))
@@ -31,5 +36,10 @@ object MatchHistory {
     fun getHistory(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getString(KEY_HISTORY, "") ?: ""
+    }
+
+    fun clear(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().remove(KEY_HISTORY).apply()
     }
 }

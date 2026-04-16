@@ -25,11 +25,19 @@ object LlmMatcher {
         val reason: String
     )
 
-    suspend fun matchMessage(context: Context, message: WhatsAppMessage): LlmResult {
+    /** Backwards-compat: read prompts from the editing preset via AppConfig. */
+    suspend fun matchMessage(context: Context, message: WhatsAppMessage): LlmResult =
+        matchMessage(context, message, AppConfig.getMatchPrompts(context))
+
+    /** Explicit prompts — used when iterating enabled presets. */
+    suspend fun matchMessage(
+        context: Context,
+        message: WhatsAppMessage,
+        prompts: List<String>
+    ): LlmResult {
         val apiKey = AppConfig.getApiKey(context)
         val baseUrl = AppConfig.getApiBaseUrl(context)
         val model = AppConfig.getModel(context)
-        val prompts = AppConfig.getMatchPrompts(context)
 
         if (apiKey.isBlank() || apiKey == "your-api-key-here") {
             Log.w(TAG, "No API key configured, skipping LLM matching")

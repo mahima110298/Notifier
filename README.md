@@ -1,13 +1,26 @@
-# WhatsApp Notifier
+# InboxZen
 
-An Android app that listens for WhatsApp notifications, filters them by group
-and sender, and uses an LLM (any OpenAI-compatible chat-completions endpoint)
-to classify whether each message matches a user-defined criteria. When a
-message matches, the app posts a high-priority alert notification.
+An Android app that listens for WhatsApp notifications, filters them
+through named, reusable **presets**, and uses an LLM (any OpenAI-compatible
+chat-completions endpoint) to classify whether each message actually
+matches your criteria. Matching messages trigger a high-priority alert on
+your phone.
 
-Typical use case: monitor a busy WhatsApp group for messages on a specific
-topic (e.g. *"someone is looking for a flatmate"*) without reading every
-message yourself.
+Typical use: monitor one or more busy WhatsApp groups — or specific 1:1
+contacts — for messages on a specific topic (flatmate search, on-call
+outages, job postings) without reading every message yourself.
+
+---
+
+## Screenshots
+
+| Setup | LLM (debug) | History (debug) |
+|---|---|---|
+| ![Setup tab](docs/screenshots/setup-tab.png) | ![LLM tab](docs/screenshots/llm-tab.png) | ![History tab](docs/screenshots/history-tab.png) |
+
+| Alert notification | App icon |
+|---|---|
+| ![Alert](docs/screenshots/alert-notification.png) | ![Launcher icon](docs/screenshots/launcher-icon.png) |
 
 ---
 
@@ -17,21 +30,51 @@ message yourself.
 WhatsApp notification
         │
         ▼
-WhatsAppNotificationListener   ── parses the notification (title / text /
-        │                         bigText / subText / EXTRA_MESSAGES)
+WhatsAppNotificationListener      parse (title / text / bigText / subText /
+        │                          EXTRA_MESSAGES / MessagingStyle extras),
+        │                          strip "(N messages)" bundle-count suffix
         ▼
-MessageMatcher                 ── group-name filter + allowed-sender filter
+CapturedNotifications             raw feed — debug only
         │
         ▼
-LlmMatcher                     ── sends (match prompt + message) to an LLM,
-        │                         parses {"matches": bool, "reason": string}
+for each enabled preset:
+   MessageMatcher                 target_groups / target_individuals /
+        │                          allowed_senders
         ▼
-AlertNotifier                  ── posts a local notification + logs to
-                                  MatchHistory (shown on the main screen)
+   LlmMatcher                    send (match prompts + message) to an LLM,
+        │                         parse {"matches": bool, "matched_criterion": N,
+        │                                "reason": string}
+        ▼
+   AlertNotifier                 post a high-priority system notification;
+                                  (debug only) also write to MatchHistory
 ```
 
-Only messages that pass all three stages (group, sender, LLM) trigger an
-alert.
+Alerts are posted from the first enabled preset whose filters + LLM
+approve the message. Multiple presets can be enabled simultaneously; the
+listener iterates them in order and short-circuits on the first match.
+
+---
+
+## Features
+
+- **Named presets** — save multiple matching profiles (e.g. *Flatmate
+  alerts*, *On-call outages*, *Job postings*). Each preset bundles target
+  groups, 1:1 contacts, sender allow-list, and one or more match prompts.
+- **Independent enable/disable** — toggle any preset on/off without
+  deleting it. Multiple presets can be enabled at once.
+- **Natural-language generation** — type *"alert me when Alice or Bob in
+  Flatmates mention rent or subletting"* and the LLM fills the form.
+- **Multiple target groups, contacts, prompts** per preset — any-match
+  semantics.
+- **Bundled-notification handling** — WhatsApp titles like `"You n Me (2
+  messages)"` are normalized so the group filter doesn't silently drop
+  them.
+- **LLM-agnostic** — any OpenAI-compatible `/chat/completions` endpoint
+  works (OpenAI, Together, Groq, local proxies).
+- **Debug-only diagnostics** — Captured Notifications (raw feed), Recent
+  Matches (LLM-approved), and LLM-endpoint tabs are only present in the
+  debug APK; release builds show just the Setup tab and bake the LLM
+  config from `.env`.
 
 ---
 
@@ -40,69 +83,138 @@ alert.
 ```
 .
 ├── app/
-│   ├── build.gradle.kts
 │   └── src/
 │       ├── main/
 │       │   ├── AndroidManifest.xml
 │       │   ├── java/com/notifier/whatsapp/
-│       │   │   ├── AlertNotifier.kt              # builds + posts alert notifications
-│       │   │   ├── AppConfig.kt                  # SharedPreferences + BuildConfig defaults
-│       │   │   ├── LlmMatcher.kt                 # OpenAI-compatible chat-completions client
-│       │   │   ├── MainActivity.kt               # UI: permission, config, recent matches
-│       │   │   ├── MatchHistory.kt               # last 20 matches, persisted
-│       │   │   ├── MessageMatcher.kt             # group + sender filters
+│       │   │   ├── AlertNotifier.kt            # posts match-alert notifications
+│       │   │   ├── AppConfig.kt                # runtime config surface; routes to PresetStore
+│       │   │   ├── CapturedNotifications.kt    # debug feed of every received notification
+│       │   │   ├── ConfigGenerator.kt          # natural-language → structured config (LLM)
+│       │   │   ├── ConfigPreset.kt             # data class; enabled flag + parsing helpers
+│       │   │   ├── HistoryFragment.kt          # debug tab — Recent Matches + Captured
+│       │   │   ├── LlmMatcher.kt               # OpenAI-compatible chat-completions client
+│       │   │   ├── LlmSettingsFragment.kt      # debug tab — api key / base url / model
+│       │   │   ├── MainActivity.kt             # tab host
+│       │   │   ├── MatchHistory.kt             # debug-only log of LLM-approved matches
+│       │   │   ├── MessageMatcher.kt           # group / sender / individual pure filters
+│       │   │   ├── PresetStore.kt              # JSON-backed list of presets
+│       │   │   ├── SetupFragment.kt            # main UI: permission, presets, config form
 │       │   │   ├── WhatsAppNotificationListener.kt
-│       │   │   └── WhatsAppNotificationParser.kt # extracts sender/body/group from Notification
+│       │   │   └── WhatsAppNotificationParser.kt
 │       │   └── res/
+│       │       ├── drawable/                   # header_gradient, pill_primary, icon vectors…
+│       │       ├── layout/                     # activity_main, fragment_{setup,llm_settings,history}
+│       │       ├── mipmap-anydpi-v26/          # adaptive app icon
+│       │       └── values/                     # colors, themes (6 TextAppearance styles), strings
 │       └── test/
 │           ├── java/com/notifier/whatsapp/
-│           │   ├── LlmMatcherIntegrationTest.kt  # opt-in, hits real LLM
-│           │   └── MessageMatcherTest.kt         # data-driven from test_cases.json
-│           └── resources/test_cases.json
+│           │   ├── ConfigPresetTest.kt             # 8 tests — JSON, enabled flag, helpers
+│           │   ├── LlmMatcherIntegrationTest.kt    # opt-in, real LLM
+│           │   ├── MessageMatcherTest.kt           # 10 tests — data-driven + direct API
+│           │   └── WhatsAppNotificationParserTest.kt  # 11 tests — count-suffix stripping
+│           └── resources/test_cases.json           # 11 filter-matrix scenarios
 ├── build.gradle.kts
 ├── settings.gradle.kts
-├── gradle/wrapper/
-├── gradlew
-├── .env                                          # runtime defaults baked into BuildConfig
-└── local.properties                              # sdk.dir (user-local, not checked in)
+├── .env                       # build-time defaults (LLM key, first-launch preset)
+├── local.properties           # sdk.dir — user-local, not checked in
+└── docs/screenshots/          # images embedded above
 ```
 
 ---
 
 ## Prerequisites
 
-- **JDK 17+** (the project compiles Kotlin/Java to target 17). Android
-  Studio's bundled JBR works fine — on macOS the default location is
-  `/Applications/Android Studio.app/Contents/jbr/Contents/Home`.
-- **Android SDK** with platform 35 and build-tools 34. Install via Android
-  Studio's SDK Manager, or let the first Gradle build auto-install them.
-- **`local.properties`** at the repo root pointing at the SDK, e.g.:
-  ```properties
+- **JDK 17+** — Android Studio's bundled JBR works. On macOS:
+  `/Applications/Android Studio.app/Contents/jbr/Contents/Home`
+- **Android SDK** — compileSdk 35, build-tools 34. First Gradle build
+  auto-accepts licenses and installs what's missing.
+- `local.properties` pointing at the SDK:
+  ```
   sdk.dir=/Users/<you>/Library/Android/sdk
   ```
+- **minSdk 26** (Android 8.0 Oreo).
 
 ---
 
 ## Configuration
 
-Defaults are read from `.env` at build time and baked into `BuildConfig`.
-The user can override any of them at runtime via the Configuration card in
-the app — overrides are persisted in SharedPreferences.
+Defaults live in `.env` and get baked into `BuildConfig` at build time. On
+first launch they seed a preset called **Default**. Subsequent edits are
+persisted in the app (see *Where config is stored* below).
 
 `.env` keys:
 
-| Key                | Meaning                                                                  |
-|--------------------|--------------------------------------------------------------------------|
-| `TARGET_GROUP`     | Exact WhatsApp group name to monitor. Blank = match any group.           |
-| `ALLOWED_SENDERS`  | Comma-separated sender names, or `all` to accept any sender.             |
-| `LLM_API_KEY`      | Bearer token for the LLM endpoint.                                       |
-| `LLM_API_BASE_URL` | OpenAI-compatible base URL, e.g. `https://api.openai.com/v1`.            |
-| `LLM_MODEL`        | Model id, e.g. `gpt-4o-mini`.                                            |
-| `MATCH_PROMPT`     | Plain-English criteria; the LLM answers with `{"matches": ..., "reason": ...}`. |
+| Key                  | Meaning                                                                                    |
+|----------------------|--------------------------------------------------------------------------------------------|
+| `TARGET_GROUPS`      | Comma-separated WhatsApp group names to monitor. Blank or `all` = any group.               |
+| `TARGET_INDIVIDUALS` | Comma-separated 1:1 contact names. Blank = **ignore 1:1** (opt-in). `all` = any contact.   |
+| `ALLOWED_SENDERS`    | Within-group sender allow-list. Blank or `all` = any sender.                               |
+| `MATCH_PROMPTS`      | One or more classifier criteria separated by `|` in `.env`. A message matches if ANY fires. |
+| `LLM_API_KEY`        | Bearer token for the LLM endpoint.                                                         |
+| `LLM_API_BASE_URL`   | OpenAI-compatible base URL.                                                                |
+| `LLM_MODEL`          | Model id (e.g. `gpt-4o-mini`).                                                             |
 
-If `LLM_API_KEY` is blank or left as the placeholder `your-api-key-here`,
-the LLM stage is bypassed and every message that passes the group + sender
-filters is treated as a match. This is useful for wiring-up / debugging.
+If `LLM_API_KEY` is blank or left as `your-api-key-here`, the LLM stage is
+skipped and every message passing the filters is treated as a match (pass
+-through mode — useful for wiring up on a new device).
+
+---
+
+## Using the app
+
+### Setup tab (always visible)
+
+- **Notification Access** — tap *Grant* once to enable the
+  NotificationListenerService. Without this nothing can be intercepted.
+- **Saved Presets**
+  - Toggle a preset's switch to enable/disable matching for it.
+  - Tap the name to load its values into the form for editing — the
+    preset you're editing shows an "EDITING" badge.
+  - Tap the `×` icon to delete (confirmation dialog).
+  - **Save As New** — takes the current form and stores it as a new preset.
+  - **Generate from description** — opens a dialog where you type what
+    you want to be alerted about; the LLM fills the form. Review, tweak,
+    then *Save Configuration* (overwrites the editing preset) or *Save As
+    New* (makes a named preset).
+- **Configuration form**
+  - *Target Groups* — comma-separated (blank or `all` = any).
+  - *1:1 Contacts* — comma-separated (blank = none, `all` = any).
+  - *Allowed Senders within groups* — optional sender whitelist.
+  - *Match Prompts* — one criterion per line. Any-match semantics.
+
+### LLM tab (debug only)
+
+API key / base URL / model. Release APKs don't expose this tab; they use
+the `.env`-baked defaults. If you need to rotate credentials in a release,
+rebuild.
+
+### History tab (debug only)
+
+- *Recent Matches* — LLM-approved matches with the reason + matched
+  criterion.
+- *Captured Notifications* — every notification the listener received
+  (all packages, all groups, pre-filter). Useful for diagnosing filter
+  issues: if a message you expected didn't alert, check whether it's
+  here (listener saw it) or not (WhatsApp didn't post it — e.g. chat is
+  fully muted with *Show notifications* off).
+
+---
+
+## Where config is stored
+
+| Data                           | Location                                               | Notes                                                                  |
+|--------------------------------|--------------------------------------------------------|------------------------------------------------------------------------|
+| Saved presets + editing target | `config_presets` SharedPreferences (JSON array)        | Survives app upgrades; cleared only by uninstall or explicit user delete |
+| LLM endpoint (key / URL / model) | `whatsapp_notifier_config` SharedPreferences          | Debug builds only — release uses BuildConfig/.env defaults             |
+| Recent Matches (debug)         | `match_history` SharedPreferences                      | Last 20 matches. Writes disabled in release.                           |
+| Captured Notifications (debug) | `captured_notifications` SharedPreferences             | Last 50 raw notifications. Writes disabled in release.                 |
+| `.env` → `BuildConfig`         | Read once at build time by `app/build.gradle.kts`      | Used as fallback when no SharedPreferences value is set                |
+
+All SharedPreferences files live under
+`/data/data/com.notifier.whatsapp/shared_prefs/` on the device (per-app
+sandbox). They're backed up if `android:allowBackup="true"` is set in
+the manifest.
 
 ---
 
@@ -112,105 +224,107 @@ filters is treated as a match. This is useful for wiring-up / debugging.
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 
-./gradlew assembleDebug          # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew assembleRelease        # → app/build/outputs/apk/release/app-release-unsigned.apk
+./gradlew assembleDebug          # app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease        # app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
-## Install & run (emulator or device)
+**Debug** = 3 tabs (Setup / LLM / History), diagnostics enabled, listener
+accepts notifications from any package (so `adb shell cmd notification
+post …` simulations work on the emulator).
+
+**Release** = Setup tab only, diagnostics disabled, listener strictly
+filters on `com.whatsapp`.
+
+## Install & run
 
 ```bash
-adb devices                                                # confirm target
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.notifier.whatsapp/.MainActivity
+
+# One-time: grant notification access and post-notifications permission
+adb shell cmd notification allow_listener \
+  com.notifier.whatsapp/com.notifier.whatsapp.WhatsAppNotificationListener
+adb shell pm grant com.notifier.whatsapp android.permission.POST_NOTIFICATIONS
 ```
-
-Inside the app:
-
-1. Tap **Grant** to open Settings → *Notification access* and enable
-   **WhatsApp Notifier**. Without this permission the listener can't see any
-   notifications.
-2. Review the Configuration card, tweak if needed, tap **Save**.
-3. Trigger a test message in WhatsApp. Matches appear under **Recent
-   Matches** and as a high-priority system notification.
 
 ---
 
 ## Testing
 
-The matcher is covered by **data-driven** unit tests. Each case in
-`app/src/test/resources/test_cases.json` specifies an `.env`-style config,
-a fake WhatsApp message, and the expected filter outcomes:
-
-```json
-{
-  "name": "allowed sender list: non-matching sender is filtered out",
-  "config": {
-    "TARGET_GROUP": "My Apartment Group",
-    "ALLOWED_SENDERS": "Alice, Carol",
-    "MATCH_PROMPT": "accommodation inquiries"
-  },
-  "message": {
-    "title": "My Apartment Group",
-    "text": "Bob: anyone up for hiking?",
-    "bigText": "anyone up for hiking?",
-    "subText": "My Apartment Group",
-    "sender": "Bob",
-    "messageBody": "anyone up for hiking?",
-    "isGroupMessage": true
-  },
-  "expected": {
-    "group_match": true,
-    "sender_match": false
-  }
-}
-```
-
-**Run the offline suite** (group + sender filters — fast, no network):
+Unit tests run on the plain JVM (no Android/device needed):
 
 ```bash
 ./gradlew testDebugUnitTest
 ```
 
-**Run the LLM integration test as well** (hits the real chat-completions
-endpoint for every case that declares `llm_match`):
+Suites:
+- `ConfigPresetTest` — **8** tests: JSON roundtrip, `enabled` flag
+  persistence, legacy-JSON defaults, parsing helpers, wildcard individuals.
+- `MessageMatcherTest` — **10** tests: data-driven from
+  `test_cases.json` + direct API tests for multi-group match, empty
+  allow-list, individual filter semantics.
+- `WhatsAppNotificationParserTest` — **11** tests: `(N messages)`
+  suffix stripping (plural / singular / with-"new" / case-insensitive /
+  whitespace / false-positive safety), group-name extraction.
+- `LlmMatcherIntegrationTest` — hits a real LLM; skipped unless
+  `RUN_LLM_TESTS=1` + `LLM_API_KEY` are set.
+
+**29 passing, 1 skipped by default.**
+
+Opt-in to the full LLM integration run:
 
 ```bash
-RUN_LLM_TESTS=1 \
-LLM_API_KEY=sk-... \
-LLM_API_BASE_URL=https://api.openai.com/v1 \
-LLM_MODEL=gpt-4o-mini \
-./gradlew testDebugUnitTest --rerun-tasks
+RUN_LLM_TESTS=1 LLM_API_KEY=sk-... ./gradlew testDebugUnitTest --rerun-tasks
 ```
 
-Add a new case by appending an object to `test_cases.json` — no code
-changes needed.
+### Data-driven matcher test
 
-HTML report: `app/build/reports/tests/testDebugUnitTest/index.html`.
+`app/src/test/resources/test_cases.json` is a list of `.env`-style configs
+paired with fake WhatsApp messages and the expected filter outcomes.
+Adding a case is just an object append — no code change needed.
+
+```json
+{
+  "name": "multiple target groups: message in one of them matches",
+  "config": {
+    "TARGET_GROUPS": "You n Me, Project Team, Flatmates",
+    "ALLOWED_SENDERS": "all",
+    "MATCH_PROMPTS": "accommodation inquiries"
+  },
+  "message": {
+    "title": "Project Team",
+    "text": "Alice: weekly sync notes attached",
+    "sender": "Alice",
+    "messageBody": "weekly sync notes attached",
+    "isGroupMessage": true
+  },
+  "expected": { "group_match": true, "sender_match": true }
+}
+```
 
 ---
 
 ## Required permissions
 
-Declared in `AndroidManifest.xml`:
-
 - `INTERNET` — LLM API calls.
-- `POST_NOTIFICATIONS` — posting alerts (required on Android 13+).
-- `BIND_NOTIFICATION_LISTENER_SERVICE` — granted by the user via Settings,
-  not at install time. This is the only way Android exposes other apps'
-  notifications.
+- `POST_NOTIFICATIONS` — post match alerts (runtime permission on Android
+  13+; requested on first launch).
+- `BIND_NOTIFICATION_LISTENER_SERVICE` — granted by the user in system
+  Settings. Declared on the service in the manifest.
 
 ---
 
 ## Troubleshooting
 
-| Symptom                                           | Likely cause / fix                                                                             |
-|---------------------------------------------------|------------------------------------------------------------------------------------------------|
-| Status dot stays red / "Not granted"              | Notification access not enabled — tap **Grant** and toggle **WhatsApp Notifier** on.           |
-| No alerts despite messages in WhatsApp            | `TARGET_GROUP` doesn't match the WhatsApp group name exactly (case-insensitive). Leave blank to wildcard. |
-| Every message triggers an alert                   | `LLM_API_KEY` is blank / placeholder, so the LLM stage is bypassed (pass-through).             |
-| `LLM API error 401/403`                           | Key invalid or model not available on the endpoint. Check `LLM_API_BASE_URL` + `LLM_MODEL`.    |
-| `SDK XML version 4` warning during build          | Build-tools / SDK version mismatch — harmless; Gradle auto-installs the required components.  |
-| `Unresolved reference: dependencyResolution`      | You're on Gradle < 9. `settings.gradle.kts` uses `dependencyResolutionManagement` (correct).   |
+| Symptom                                        | Likely cause / fix                                                                        |
+|------------------------------------------------|-------------------------------------------------------------------------------------------|
+| Status dot red / "Not granted"                 | Tap *Grant* and toggle InboxZen on in *Settings → Notification access*.                   |
+| No alerts despite messages                     | Target group doesn't match *exactly* (case-insensitive) after stripping `(N messages)` suffix — check spelling, or leave blank. |
+| Muted chat: listener sees nothing              | WhatsApp suppresses posts for fully-muted chats. Enable *Custom notifications → Show notifications* on the chat. |
+| Everything triggers an alert                   | `LLM_API_KEY` is blank or placeholder → pass-through mode.                                |
+| `LLM API error 401/403`                        | Bad key, wrong base URL, or model unavailable on that endpoint.                           |
+| Alert posted per logcat, nothing in shade      | Either auto-grouped silent bucket (tap the `(i)(💬)(A)` pill) or `POST_NOTIFICATIONS` denied. |
+| Pre-existing preset went silent after upgrade  | Shouldn't happen — the `enabled` field defaults to `true` for legacy presets. File an issue if it does. |
 
 ---
 

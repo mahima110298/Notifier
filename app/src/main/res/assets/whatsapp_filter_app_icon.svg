@@ -1,0 +1,52 @@
+<svg width="512" height="512" viewBox="0 0 680 680" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>App icon for WhatsApp message filter app</title>
+  <desc>A rounded square app icon featuring a speech bubble with filter lines and a muted bell, in deep teal and green tones</desc>
+
+  <defs>
+    <clipPath id="iconClip">
+      <rect x="90" y="90" width="500" height="500" rx="110" ry="110"/>
+    </clipPath>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d4f3c"/>
+      <stop offset="100%" stop-color="#1a7a5e"/>
+    </linearGradient>
+    <linearGradient id="bubbleGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#25d366"/>
+      <stop offset="100%" stop-color="#1da851"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon rounded square background -->
+  <rect x="90" y="90" width="500" height="500" rx="110" ry="110" fill="url(#bgGrad)"/>
+
+  <!-- Subtle inner glow ring -->
+  <rect x="90" y="90" width="500" height="500" rx="110" ry="110" fill="none" stroke="#25d366" stroke-width="2.5" opacity="0.3"/>
+
+  <!-- Speech bubble -->
+  <g clip-path="url(#iconClip)">
+    <rect x="155" y="185" width="360" height="265" rx="40" ry="40" fill="url(#bubbleGrad)"/>
+    <polygon points="200,450 165,530 275,450" fill="#1da851"/>
+
+    <!-- Filter lines -->
+    <rect x="205" y="258" width="260" height="24" rx="12" fill="#0d4f3c" opacity="0.85"/>
+    <rect x="235" y="308" width="200" height="24" rx="12" fill="#0d4f3c" opacity="0.85"/>
+    <rect x="265" y="358" width="140" height="24" rx="12" fill="#0d4f3c" opacity="0.85"/>
+
+    <!-- Funnel hint -->
+    <polygon points="450,250 510,250 490,290 490,330 470,350 470,290" fill="#fff" opacity="0.25"/>
+  </g>
+
+  <!-- Muted bell -->
+  <g transform="translate(485, 148)">
+    <path d="M0,-28 C-16,-28 -28,-16 -28,4 L-28,28 L28,28 L28,4 C28,-16 16,-28 0,-28 Z" fill="#fbbf24"/>
+    <rect x="-8" y="28" width="16" height="10" rx="5" fill="#fbbf24"/>
+    <circle cx="0" cy="40" r="7" fill="#f59e0b"/>
+    <line x1="-34" y1="-34" x2="34" y2="34" stroke="#ef4444" stroke-width="7" stroke-linecap="round"/>
+    <line x1="-34" y1="-34" x2="34" y2="34" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+  </g>
+
+  <!-- Sparkle dots -->
+  <circle cx="175" cy="170" r="5" fill="#25d366" opacity="0.45"/>
+  <circle cx="510" cy="490" r="4" fill="#25d366" opacity="0.3"/>
+  <circle cx="530" cy="200" r="3" fill="#fff" opacity="0.2"/>
+</svg>

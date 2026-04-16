@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WhatsApp Notifier</string>
-    <string name="alert_channel_name">WhatsApp Match Alerts</string>
+    <string name="app_name">InboxZen</string>
+    <string name="alert_channel_name">InboxZen Match Alerts</string>
     <string name="alert_channel_description">Notifications when a WhatsApp message matches your criteria</string>
 </resources>

@@ -79,6 +79,10 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
+    // Tabs + fragments
+    implementation("androidx.viewpager2:viewpager2:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
+
     // Unit testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
