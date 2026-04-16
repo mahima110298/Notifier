@@ -37,7 +37,7 @@
   </g>
 
   <!-- Muted bell -->
-  <g transform="translate(485, 148)">
+  <g transform="translate(455, 200)">
     <path d="M0,-28 C-16,-28 -28,-16 -28,4 L-28,28 L28,28 L28,4 C28,-16 16,-28 0,-28 Z" fill="#fbbf24"/>
     <rect x="-8" y="28" width="16" height="10" rx="5" fill="#fbbf24"/>
     <circle cx="0" cy="40" r="7" fill="#f59e0b"/>

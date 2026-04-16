@@ -48,29 +48,29 @@
         android:fillColor="#FFFFFF"
         android:fillAlpha="0.25" />
 
-    <!-- Muted bell body (translated from origin 485,148) -->
+    <!-- Muted bell body (translated from origin 455,200) -->
     <path
-        android:pathData="M485,120 C469,120 457,132 457,152 L457,176 L513,176 L513,152 C513,132 501,120 485,120 Z"
+        android:pathData="M455,172 C439,172 427,184 427,204 L427,228 L483,228 L483,204 C483,184 471,172 455,172 Z"
         android:fillColor="#FBBF24" />
 
-    <!-- Bell clapper rect (16×10 stadium, translated to 477,176 — 493,186) -->
+    <!-- Bell clapper rect (16×10 stadium, translated to 447,228 — 463,238) -->
     <path
-        android:pathData="M482,176 L488,176 A5,5 0 0 1 488,186 L482,186 A5,5 0 0 1 482,176 Z"
+        android:pathData="M452,228 L458,228 A5,5 0 0 1 458,238 L452,238 A5,5 0 0 1 452,228 Z"
         android:fillColor="#FBBF24" />
 
-    <!-- Bell dot (circle at 485,188, r=7) -->
+    <!-- Bell dot (circle at 455,240, r=7) -->
     <path
-        android:pathData="M478,188 A7,7 0 1 0 492,188 A7,7 0 1 0 478,188 Z"
+        android:pathData="M448,240 A7,7 0 1 0 462,240 A7,7 0 1 0 448,240 Z"
         android:fillColor="#F59E0B" />
 
-    <!-- Diagonal 'muted' strike line (from 451,114 to 519,182) -->
+    <!-- Diagonal 'muted' strike line (from 421,166 to 489,234) -->
     <path
-        android:pathData="M451,114 L519,182"
+        android:pathData="M421,166 L489,234"
         android:strokeColor="#EF4444"
         android:strokeWidth="7"
         android:strokeLineCap="round" />
     <path
-        android:pathData="M451,114 L519,182"
+        android:pathData="M421,166 L489,234"
         android:strokeColor="#FFFFFF"
         android:strokeWidth="2.5"
         android:strokeAlpha="0.5"

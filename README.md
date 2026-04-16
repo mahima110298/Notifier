@@ -14,13 +14,20 @@ outages, job postings) without reading every message yourself.
 
 ## Screenshots
 
+The three tabs in a debug build. Release builds show only the first.
+
 | Setup | LLM (debug) | History (debug) |
-|---|---|---|
+|-------|---|---|
 | ![Setup tab](docs/screenshots/setup-tab.png) | ![LLM tab](docs/screenshots/llm-tab.png) | ![History tab](docs/screenshots/history-tab.png) |
 
-| Alert notification | App icon |
-|---|---|
-| ![Alert](docs/screenshots/alert-notification.png) | ![Launcher icon](docs/screenshots/launcher-icon.png) |
+The **History** tab above shows Recent Matches — the messages the LLM
+approved, each tagged with the preset name that triggered it (e.g.
+`[Default]`). Captured Notifications underneath is the raw unfiltered
+feed.
+
+App icon on the launcher:
+
+![Launcher icon](docs/screenshots/launcher-icon.png)
 
 ---
 
