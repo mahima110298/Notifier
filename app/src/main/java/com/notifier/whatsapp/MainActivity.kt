@@ -1,13 +1,17 @@
 package com.notifier.whatsapp
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.notifier.whatsapp.databinding.ActivityMainBinding
 
@@ -18,6 +22,8 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             updatePermissionStatus()
             updateMatchHistory()
+            updatePreLlmMatches()
+            updateCapturedNotifications()
             handler.postDelayed(this, 3000)
         }
     }
@@ -28,8 +34,34 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         AlertNotifier.createNotificationChannel(this)
+        requestPostNotificationsIfNeeded()
         loadConfig()
         setupListeners()
+
+        // Debug-only diagnostic cards.
+        val debugVis =
+            if (BuildConfig.DEBUG_ACCEPT_ALL_PACKAGES) android.view.View.VISIBLE
+            else android.view.View.GONE
+        binding.cardPreLlm.visibility = debugVis
+        binding.cardCaptured.visibility = debugVis
+    }
+
+    private fun requestPostNotificationsIfNeeded() {
+        // POST_NOTIFICATIONS became a runtime permission in Android 13 (API 33).
+        // Without it, manager.notify(...) is silently dropped by the OS.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_POST_NOTIF
+            )
+        }
+    }
+
+    companion object {
+        private const val REQ_POST_NOTIF = 1001
     }
 
     override fun onResume() {
@@ -43,15 +75,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadConfig() {
-        binding.editTargetGroup.setText(AppConfig.getTargetGroup(this))
-        val senders = AppConfig.getAllowedSenders(this)
-        binding.editAllowedSenders.setText(
-            if (senders.isEmpty()) "all" else senders.joinToString(", ")
-        )
+        binding.editTargetGroups.setText(AppConfig.getTargetGroupsRaw(this))
+        binding.editTargetIndividuals.setText(AppConfig.getTargetIndividualsRaw(this))
+        binding.editAllowedSenders.setText(AppConfig.getAllowedSendersRaw(this))
         binding.editApiKey.setText(AppConfig.getApiKey(this))
         binding.editApiBaseUrl.setText(AppConfig.getApiBaseUrl(this))
         binding.editModel.setText(AppConfig.getModel(this))
-        binding.editMatchPrompt.setText(AppConfig.getMatchPrompt(this))
+        // Render multi-prompt config with newlines between entries.
+        val promptsRaw = AppConfig.getMatchPromptsRaw(this)
+        binding.editMatchPrompts.setText(promptsRaw.replace('|', '\n'))
     }
 
     private fun setupListeners() {
@@ -62,14 +94,64 @@ class MainActivity : AppCompatActivity() {
         binding.btnSaveConfig.setOnClickListener {
             AppConfig.save(
                 context = this,
-                targetGroup = binding.editTargetGroup.text.toString().trim(),
+                targetGroups = binding.editTargetGroups.text.toString().trim(),
+                targetIndividuals = binding.editTargetIndividuals.text.toString().trim(),
                 allowedSenders = binding.editAllowedSenders.text.toString().trim(),
                 apiKey = binding.editApiKey.text.toString().trim(),
                 apiBaseUrl = binding.editApiBaseUrl.text.toString().trim(),
                 model = binding.editModel.text.toString().trim(),
-                matchPrompt = binding.editMatchPrompt.text.toString().trim()
+                matchPrompts = binding.editMatchPrompts.text.toString().trim()
             )
             Toast.makeText(this, "Configuration saved", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnClearCaptured.setOnClickListener {
+            CapturedNotifications.clear(this)
+            updateCapturedNotifications()
+            Toast.makeText(this, "Captured log cleared", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnClearPreLlm.setOnClickListener {
+            PreLlmMatches.clear(this)
+            updatePreLlmMatches()
+            Toast.makeText(this, "Pre-LLM log cleared", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateCapturedNotifications() {
+        if (!BuildConfig.DEBUG_ACCEPT_ALL_PACKAGES) return
+        val log = CapturedNotifications.getLog(this)
+        binding.textCaptured.text = log.ifBlank { "Nothing captured yet." }
+    }
+
+    private fun updatePreLlmMatches() {
+        if (!BuildConfig.DEBUG_ACCEPT_ALL_PACKAGES) return
+        val log = PreLlmMatches.getLog(this)
+        binding.textPreLlm.text = log.ifBlank {
+            val groups = AppConfig.getTargetGroups(this)
+            val individualsWild = AppConfig.individualsWildcard(this)
+            val individuals = AppConfig.getTargetIndividuals(this)
+            val senders = AppConfig.getAllowedSenders(this)
+            val promptCount = AppConfig.getMatchPrompts(this).size
+            buildString {
+                append("No pre-LLM candidates yet.\n\n")
+                append("Active config:\n")
+                append(" • Groups: ")
+                append(if (groups.isEmpty()) "(any)" else groups.joinToString(", "))
+                append('\n')
+                append(" • 1:1 contacts: ")
+                append(when {
+                    individualsWild -> "(any)"
+                    individuals.isEmpty() -> "(none — 1:1 messages are ignored)"
+                    else -> individuals.joinToString(", ")
+                })
+                append('\n')
+                append(" • Sender allow-list (groups): ")
+                append(if (senders.isEmpty()) "(any)" else senders.joinToString(", "))
+                append('\n')
+                append(" • Match prompts configured: $promptCount\n\n")
+                append("Total stored entries: ${PreLlmMatches.count(this@MainActivity)}")
+            }
         }
     }
 

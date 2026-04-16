@@ -19,18 +19,35 @@ data class WhatsAppMessage(
 object WhatsAppNotificationParser {
     private const val WHATSAPP_PACKAGE = "com.whatsapp"
 
+    // WhatsApp suffixes the title with "(N messages)" / "(N new messages)"
+    // when bundling multiple pending messages into a single notification.
+    // Strip it so the group-name equality check ("You n Me" == "You n Me")
+    // isn't broken by "You n Me (2 messages)".
+    private val COUNT_SUFFIX = Regex("""\s*\(\d+\s+(new\s+)?messages?\)\s*$""", RegexOption.IGNORE_CASE)
+
+    internal fun stripCountSuffix(s: String): String = s.replace(COUNT_SUFFIX, "").trim()
+
     fun isWhatsApp(sbn: StatusBarNotification): Boolean =
         sbn.packageName == WHATSAPP_PACKAGE
 
     fun parse(sbn: StatusBarNotification): WhatsAppMessage? {
-        if (!isWhatsApp(sbn)) return null
-
+        // Package filtering happens in the listener (so it can honor
+        // BuildConfig.DEBUG_ACCEPT_ALL_PACKAGES). Here we just parse.
         val extras: Bundle = sbn.notification.extras ?: return null
 
-        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        val rawTitle = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        val title = stripCountSuffix(rawTitle)
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
         val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString() ?: ""
+        // EXTRA_CONVERSATION_TITLE is set by MessagingStyle and is the most
+        // reliable source for the group/conversation name when present.
+        val conversationTitle = extras
+            .getCharSequence("android.conversationTitle")?.toString()?.let(::stripCountSuffix)
+            ?: ""
+        // isGroupConversation is a boolean WhatsApp sets on MessagingStyle
+        // notifications to flag groups vs 1:1 chats.
+        val isGroupExtra = extras.getBoolean("android.isGroupConversation", false)
 
         // Extract messages from EXTRA_MESSAGES (Messaging style notifications)
         val messages = mutableListOf<String>()
@@ -47,9 +64,11 @@ object WhatsAppNotificationParser {
             }
         }
 
-        // Determine if this is a group message
-        // Group messages typically have format "Sender @ Group" or "Group: Sender: Message"
-        val isGroup = title.contains(" @ ") ||
+        // Determine if this is a group message.
+        // Prefer the explicit MessagingStyle flag; fall back to heuristics.
+        val isGroup = isGroupExtra ||
+                conversationTitle.isNotBlank() && conversationTitle != title ||
+                title.contains(" @ ") ||
                 subText.isNotBlank() ||
                 text.contains(": ") // "Sender: message" format in group chats
 
@@ -60,7 +79,7 @@ object WhatsAppNotificationParser {
             title = title,
             text = text,
             bigText = bigText,
-            subText = subText,
+            subText = subText.ifBlank { conversationTitle },
             sender = sender,
             messageBody = messageBody,
             messages = messages,
@@ -100,15 +119,21 @@ object WhatsAppNotificationParser {
     }
 
     fun getGroupName(msg: WhatsAppMessage): String {
-        // subText is the most reliable group name indicator
-        if (msg.subText.isNotBlank()) return msg.subText
+        // subText (or conversationTitle folded into it) is the most reliable
+        // group-name indicator. Strip any "(N messages)" suffix before
+        // comparing.
+        if (msg.subText.isNotBlank()) return stripCountSuffix(msg.subText)
 
         // "Sender @ Group" format
-        if (msg.title.contains(" @ ")) return msg.title.substringAfter(" @ ").trim()
+        if (msg.title.contains(" @ ")) {
+            return stripCountSuffix(msg.title.substringAfter(" @ ").trim())
+        }
 
         // If it's a group message, title is often the group name
-        if (msg.isGroupMessage && !msg.title.contains(": ")) return msg.title
+        if (msg.isGroupMessage && !msg.title.contains(": ")) {
+            return stripCountSuffix(msg.title)
+        }
 
-        return msg.title
+        return stripCountSuffix(msg.title)
     }
 }

@@ -32,7 +32,15 @@ android {
     }
 
     buildTypes {
+        debug {
+            // When true, the notification listener accepts notifications from
+            // ANY package (not just com.whatsapp) — useful for simulating
+            // messages with `adb shell cmd notification post` on an emulator
+            // that doesn't have WhatsApp installed.
+            buildConfigField("boolean", "DEBUG_ACCEPT_ALL_PACKAGES", "true")
+        }
         release {
+            buildConfigField("boolean", "DEBUG_ACCEPT_ALL_PACKAGES", "false")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

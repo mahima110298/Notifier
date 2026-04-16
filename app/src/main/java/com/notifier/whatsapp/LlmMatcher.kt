@@ -29,11 +29,16 @@ object LlmMatcher {
         val apiKey = AppConfig.getApiKey(context)
         val baseUrl = AppConfig.getApiBaseUrl(context)
         val model = AppConfig.getModel(context)
-        val matchPrompt = AppConfig.getMatchPrompt(context)
+        val prompts = AppConfig.getMatchPrompts(context)
 
         if (apiKey.isBlank() || apiKey == "your-api-key-here") {
             Log.w(TAG, "No API key configured, skipping LLM matching")
             return LlmResult(matches = true, reason = "LLM not configured — passing through")
+        }
+
+        if (prompts.isEmpty()) {
+            Log.w(TAG, "No match prompts configured — treating everything as a match")
+            return LlmResult(matches = true, reason = "No match prompts configured")
         }
 
         val messageContent = buildString {
@@ -45,14 +50,31 @@ object LlmMatcher {
             }
         }
 
-        val systemPrompt = """You are a message classifier. Your job is to determine if a WhatsApp message matches a specific criteria.
+        // Single criterion → ask directly. Multiple → OR them and ask the
+        // LLM to report which one matched.
+        val systemPrompt = if (prompts.size == 1) {
+            """You are a message classifier. Your job is to determine if a WhatsApp message matches a specific criterion.
 
-Criteria: $matchPrompt
+Criterion: ${prompts[0]}
 
 Respond with ONLY a JSON object (no markdown, no code fences):
 {"matches": true/false, "reason": "brief explanation"}"""
+        } else {
+            val numbered = prompts.mapIndexed { i, p -> "${i + 1}. $p" }.joinToString("\n")
+            """You are a message classifier. Your job is to determine if a WhatsApp message matches ANY of the following criteria.
 
-        val userPrompt = "Does this message match the criteria?\n\n$messageContent"
+Criteria (a message matches if ANY one applies):
+$numbered
+
+Respond with ONLY a JSON object (no markdown, no code fences):
+{"matches": true/false, "matched_criterion": <1-based number of the matching criterion, or 0>, "reason": "brief explanation"}"""
+        }
+
+        val userPrompt = if (prompts.size == 1) {
+            "Does this message match the criterion?\n\n$messageContent"
+        } else {
+            "Does this message match any of the criteria?\n\n$messageContent"
+        }
 
         return withContext(Dispatchers.IO) {
             try {
@@ -104,9 +126,17 @@ Respond with ONLY a JSON object (no markdown, no code fences):
                     .trim()
                 val result = JSONObject(cleanContent)
 
+                val reason = result.optString("reason", "No reason provided")
+                val matchedNum = result.optInt("matched_criterion", 0)
+                val enrichedReason = if (prompts.size > 1 && matchedNum in 1..prompts.size) {
+                    "[criterion #$matchedNum: ${prompts[matchedNum - 1]}] $reason"
+                } else {
+                    reason
+                }
+
                 LlmResult(
                     matches = result.optBoolean("matches", false),
-                    reason = result.optString("reason", "No reason provided")
+                    reason = enrichedReason
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "LLM matching failed", e)

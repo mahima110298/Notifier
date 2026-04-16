@@ -162,6 +162,73 @@
     },
 
     {
+      "name": "multiple target groups: message in one of them matches",
+      "config": {
+        "TARGET_GROUPS": "You n Me, Project Team, Flatmates",
+        "ALLOWED_SENDERS": "all",
+        "MATCH_PROMPTS": "accommodation inquiries"
+      },
+      "message": {
+        "title": "Project Team",
+        "text": "Alice: weekly sync notes attached",
+        "bigText": "weekly sync notes attached",
+        "subText": "Project Team",
+        "sender": "Alice",
+        "messageBody": "weekly sync notes attached",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": true,
+        "sender_match": true
+      }
+    },
+
+    {
+      "name": "multiple target groups: message in none of them is rejected",
+      "config": {
+        "TARGET_GROUPS": "You n Me, Project Team, Flatmates",
+        "ALLOWED_SENDERS": "all",
+        "MATCH_PROMPTS": "accommodation inquiries"
+      },
+      "message": {
+        "title": "Other Random Chat",
+        "text": "Bob: hello",
+        "bigText": "hello",
+        "subText": "Other Random Chat",
+        "sender": "Bob",
+        "messageBody": "hello",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": false,
+        "sender_match": true
+      }
+    },
+
+    {
+      "name": "title has bundled-count suffix: '(N messages)' is stripped before group match",
+      "config": {
+        "TARGET_GROUP": "You n Me",
+        "ALLOWED_SENDERS": "all",
+        "MATCH_PROMPT": "accommodation inquiries"
+      },
+      "message": {
+        "title": "You n Me",
+        "text": "Ishank: Looking for accommodation",
+        "bigText": "Ishank: Looking for accommodation",
+        "subText": "You n Me (2 messages)",
+        "sender": "Ishank",
+        "messageBody": "Looking for accommodation",
+        "isGroupMessage": true
+      },
+      "expected": {
+        "group_match": true,
+        "sender_match": true,
+        "llm_match": true
+      }
+    },
+
+    {
       "name": "off-topic message in correct group: passes filters, LLM rejects",
       "config": {
         "TARGET_GROUP": "My Apartment Group",
